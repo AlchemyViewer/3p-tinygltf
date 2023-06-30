@@ -35,6 +35,6 @@ pushd "$TINYGLTF_SOURCE_DIR"
     cp -a json.hpp "$stage/include/tinygltf"
     mkdir -p "$stage/LICENSES"
     cp -a LICENSE "$stage/LICENSES/tinygltf_license.txt"
-	echo "v2.8.9" > "$stage/include/tinygltf/tinygltf_version.txt"
+	echo "v2.8.13" > "$stage/include/tinygltf/tinygltf_version.txt"
 popd
 
