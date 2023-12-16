@@ -494,25 +494,23 @@ TEST_CASE("image-uri-spaces", "[issue-236]") {
 }
 
 TEST_CASE("serialize-empty-material", "[issue-294]") {
-
   tinygltf::Model m;
-
-  tinygltf::Material mat;
-  mat.pbrMetallicRoughness.baseColorFactor = {1.0f, 1.0f, 1.0f, 1.0f}; // default baseColorFactor
-  m.materials.push_back(mat);
-
+  // Add default constructed material to model
+  m.materials.push_back({});
+  // Serialize model to output stream
   std::stringstream os;
-
   tinygltf::TinyGLTF ctx;
   bool ret = ctx.WriteGltfSceneToStream(&m, os, false, false);
   REQUIRE(true == ret);
-
-  // use nlohmann json
+  // Parse serialized model
   nlohmann::json j = nlohmann::json::parse(os.str());
-
+  // Serialized materials shall hold an empty object that
+  // represents the default constructed material
+  REQUIRE(j.find("materials") != j.end());
+  REQUIRE(j["materials"].is_array());
   REQUIRE(1 == j["materials"].size());
-  REQUIRE(j["materials"][0].is_object());
-
+  CHECK(j["materials"][0].is_object());
+  CHECK(j["materials"][0].empty());
 }
 
 TEST_CASE("empty-skeleton-id", "[issue-321]") {
@@ -756,4 +754,151 @@ TEST_CASE("load-issue-416-model", "[issue-416]") {
 
   // external file load fails, but reading glTF itself is ok.
   REQUIRE(true == ret);
+}
+
+TEST_CASE("serialize-empty-node", "[issue-457]") {
+  tinygltf::Model m;
+  // Add default constructed node to model
+  m.nodes.push_back({});
+  // Add scene to model
+  m.scenes.push_back({});
+  // The scene's only node is the empty node
+  m.scenes.front().nodes.push_back(0);
+
+  // Serialize model to output stream
+  std::stringstream os;
+  tinygltf::TinyGLTF ctx;
+  bool ret = ctx.WriteGltfSceneToStream(&m, os, false, false);
+  REQUIRE(true == ret);
+
+  // Parse serialized model
+  nlohmann::json j = nlohmann::json::parse(os.str());
+
+  // Serialized nodes shall hold an empty object that
+  // represents the default constructed node
+  REQUIRE(j.find("nodes") != j.end());
+  REQUIRE(j["nodes"].is_array());
+  REQUIRE(1 == j["nodes"].size());
+  CHECK(j["nodes"][0].is_object());
+  CHECK(j["nodes"][0].empty());
+
+  // We also want to make sure that the serialized scene
+  // is referencing the empty node.
+
+  // There shall be a single serialized scene
+  auto scenes = j.find("scenes");
+  REQUIRE(scenes != j.end());
+  REQUIRE(scenes->is_array());
+  REQUIRE(1 == scenes->size());
+  auto scene = scenes->at(0);
+  REQUIRE(scene.is_object());
+  // The scene's nodes array shall hold a reference
+  // to the single node
+  auto nodes = scene.find("nodes");
+  REQUIRE(nodes != scene.end());
+  REQUIRE(nodes->is_array());
+  REQUIRE(1 == nodes->size());
+  auto node = nodes->at(0);
+  CHECK(node.is_number_integer());
+  int idx = -1;
+  node.get_to(idx);
+  CHECK(0 == idx);
+}
+
+TEST_CASE("serialize-light-index", "[issue-458]") {
+
+  // Create the light
+  tinygltf::Light light;
+  light.type = "point";
+  light.intensity = 0.75;
+  light.color = std::vector<double>{1.0, 0.8, 0.95};
+
+  // Stream to serialize to
+  std::stringstream os;
+
+  {
+    tinygltf::Model m;
+    tinygltf::Scene scene;
+    // Add the light to the model
+    m.lights.push_back(light);
+    // Create a node that uses the light
+    tinygltf::Node node;
+    node.light = 0;
+    // Add the node to the model
+    m.nodes.push_back(node);
+    // Add the node to the scene
+    scene.nodes.push_back(0);
+    // Add the scene to the model
+    m.scenes.push_back(scene);
+    // Serialize model to output stream
+    tinygltf::TinyGLTF ctx;
+    bool ret = ctx.WriteGltfSceneToStream(&m, os, false, false);
+    REQUIRE(true == ret);
+  }
+
+  {
+    tinygltf::Model m;
+    tinygltf::TinyGLTF ctx;
+    // Parse the serialized model
+    bool ok = ctx.LoadASCIIFromString(&m, nullptr, nullptr, os.str().c_str(), os.str().size(), "");
+    REQUIRE(true == ok);
+    // Check if the light was correctly serialized
+    REQUIRE(1 == m.lights.size());
+    CHECK(m.lights[0] == light);
+    // Check that the node properly references the light
+    REQUIRE(1 == m.nodes.size());
+    CHECK(m.nodes[0].light == 0);
+  }
+}
+
+TEST_CASE("default-material", "[issue-459]") {
+  const std::vector<double> default_emissive_factor{ 0.0, 0.0, 0.0 };
+  const std::vector<double> default_base_color_factor{ 1.0, 1.0, 1.0, 1.0 };
+  const std::string default_alpha_mode = "OPAQUE";
+  const double default_alpha_cutoff = 0.5;
+  const bool default_double_sided = false;
+  const double default_metallic_factor = 1.0;
+  const double default_roughness_factor = 1.0;
+  // Check that default constructed material
+  // holds actual default GLTF material properties
+  tinygltf::Material mat;
+  CHECK(mat.alphaMode == default_alpha_mode);
+  CHECK(mat.alphaCutoff == default_alpha_cutoff);
+  CHECK(mat.doubleSided == default_double_sided);
+  CHECK(mat.emissiveFactor == default_emissive_factor);
+  CHECK(mat.pbrMetallicRoughness.baseColorFactor == default_base_color_factor);
+  CHECK(mat.pbrMetallicRoughness.metallicFactor == default_metallic_factor);
+  CHECK(mat.pbrMetallicRoughness.roughnessFactor == default_roughness_factor);
+  // None of the textures should be set
+  CHECK(mat.normalTexture.index == -1);
+  CHECK(mat.occlusionTexture.index == -1);
+  CHECK(mat.emissiveTexture.index == -1);
+}
+
+TEST_CASE("serialize-empty-scene", "[issue-464]") {
+  // Stream to serialize to
+  std::stringstream os;
+
+  {
+    tinygltf::Model m;
+    // Add empty scene to the model
+    m.scenes.push_back({});
+    // Serialize model to output stream
+    tinygltf::TinyGLTF ctx;
+    bool ret = ctx.WriteGltfSceneToStream(&m, os, false, false);
+    REQUIRE(true == ret);
+  }
+
+  {
+    tinygltf::Model m;
+    tinygltf::TinyGLTF ctx;
+    // Parse the serialized model
+    bool ok = ctx.LoadASCIIFromString(&m, nullptr, nullptr, os.str().c_str(), os.str().size(), "");
+    REQUIRE(true == ok);
+    // Make sure the empty scene is there
+    REQUIRE(1 == m.scenes.size());
+    tinygltf::Scene scene{};
+    // Check that the scene is empty
+    CHECK(m.scenes[0] == scene);
+  }
 }
