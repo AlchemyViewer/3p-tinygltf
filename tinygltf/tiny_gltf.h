@@ -1703,18 +1703,16 @@ class TinyGLTF {
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif  // __GNUC__
 
-#ifndef TINYGLTF_NO_INCLUDE_JSON
-#ifndef TINYGLTF_USE_RAPIDJSON
+#if !defined(TINYGLTF_NO_INCLUDE_JSON) && !defined(TINYGLTF_USE_RAPIDJSON) && !defined(TINYGLTF_USE_BOOSTJSON)
 #include "json.hpp"
-#else
-#ifndef TINYGLTF_NO_INCLUDE_RAPIDJSON
+#elif !defined(TINYGLTF_NO_INCLUDE_BOOSTJSON) && defined(TINYGLTF_USE_BOOSTJSON)
+#include "boost/json.hpp"
+#elif !defined(TINYGLTF_NO_INCLUDE_RAPIDJSON) && defined(TINYGLTF_USE_RAPIDJSON)
 #include "document.h"
 #include "prettywriter.h"
 #include "rapidjson.h"
 #include "stringbuffer.h"
 #include "writer.h"
-#endif
-#endif
 #endif
 
 #ifdef TINYGLTF_ENABLE_DRACO
@@ -1856,6 +1854,12 @@ struct JsonDocument : public rapidjson::Document {
 
 #endif  // TINYGLTF_USE_RAPIDJSON_CRTALLOCATOR
 
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+using json = boost::json::value;
+using json_iterator = boost::json::object::iterator;
+using json_const_iterator = boost::json::object::const_iterator;
+using json_const_array_iterator = boost::json::array::const_iterator;
+using JsonDocument = boost::json::value;
 #else
 using nlohmann::json;
 using json_iterator = json::iterator;
@@ -1869,6 +1873,14 @@ void JsonParse(JsonDocument &doc, const char *str, size_t length,
 #ifdef TINYGLTF_USE_RAPIDJSON
   (void)throwExc;
   doc.Parse(str, length);
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+    if (throwExc)
+        doc = boost::json::parse(std::string_view(str, length));
+    else
+    {
+        boost::json::error_code ec;
+        doc = boost::json::parse(std::string_view(str, length), ec);
+    }
 #else
   doc = detail::json::parse(str, str + length, nullptr, throwExc);
 #endif
@@ -3378,6 +3390,16 @@ bool GetInt(const detail::json &o, int &val) {
   }
 
   return false;
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+    auto type = o.kind();
+
+    if ((type == boost::json::kind::int64) ||
+        (type == boost::json::kind::uint64)) {
+        val = o.to_number<int>();
+        return true;
+    }
+
+    return false;
 #else
   auto type = o.type();
 
@@ -3410,6 +3432,13 @@ bool GetNumber(const detail::json &o, double &val) {
   }
 
   return false;
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+    if (o.is_number()) {
+        val = o.to_number<double>();
+        return true;
+    }
+
+    return false;
 #else
   if (o.is_number()) {
     val = o.get<double>();
@@ -3425,6 +3454,13 @@ bool GetString(const detail::json &o, std::string &val) {
   if (o.IsString()) {
     val = o.GetString();
     return true;
+  }
+
+  return false;
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  if (o.is_string()) {
+      val = boost::json::value_to<std::string>(o);
+      return true;
   }
 
   return false;
@@ -3449,6 +3485,8 @@ bool IsArray(const detail::json &o) {
 detail::json_const_array_iterator ArrayBegin(const detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return o.Begin();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return o.as_array().cbegin();
 #else
   return o.begin();
 #endif
@@ -3457,6 +3495,8 @@ detail::json_const_array_iterator ArrayBegin(const detail::json &o) {
 detail::json_const_array_iterator ArrayEnd(const detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return o.End();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return o.as_array().cend();
 #else
   return o.end();
 #endif
@@ -3473,6 +3513,8 @@ bool IsObject(const detail::json &o) {
 detail::json_const_iterator ObjectBegin(const detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return o.MemberBegin();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return o.as_object().cbegin();
 #else
   return o.begin();
 #endif
@@ -3481,6 +3523,8 @@ detail::json_const_iterator ObjectBegin(const detail::json &o) {
 detail::json_const_iterator ObjectEnd(const detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return o.MemberEnd();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return o.as_object().cend();
 #else
   return o.end();
 #endif
@@ -3491,6 +3535,8 @@ detail::json_const_iterator ObjectEnd(const detail::json &o) {
 std::string GetKey(detail::json_const_iterator &it) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return it->name.GetString();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return it->key();
 #else
   return it.key().c_str();
 #endif
@@ -3504,6 +3550,12 @@ bool FindMember(const detail::json &o, const char *member,
   }
   it = o.FindMember(member);
   return it != o.MemberEnd();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  if (!o.is_object()) {
+      return false;
+  }
+  it = o.as_object().find(member);
+  return it != o.as_object().end();
 #else
   it = o.find(member);
   return it != o.end();
@@ -3518,6 +3570,12 @@ bool FindMember(detail::json &o, const char *member,
   }
   it = o.FindMember(member);
   return it != o.MemberEnd();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  if (!o.is_object()) {
+      return false;
+  }
+  it = o.as_object().find(member);
+  return it != o.as_object().end();
 #else
   it = o.find(member);
   return it != o.end();
@@ -3527,6 +3585,8 @@ bool FindMember(detail::json &o, const char *member,
 void Erase(detail::json &o, detail::json_iterator &it) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   o.EraseMember(it);
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  o.as_object().erase(it);
 #else
   o.erase(it);
 #endif
@@ -3535,6 +3595,8 @@ void Erase(detail::json &o, detail::json_iterator &it) {
 bool IsEmpty(const detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return o.ObjectEmpty();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return o.as_object().empty();
 #else
   return o.empty();
 #endif
@@ -3543,6 +3605,8 @@ bool IsEmpty(const detail::json &o) {
 const detail::json &GetValue(detail::json_const_iterator &it) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return it->value;
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return it->value();
 #else
   return it.value();
 #endif
@@ -3551,6 +3615,8 @@ const detail::json &GetValue(detail::json_const_iterator &it) {
 detail::json &GetValue(detail::json_iterator &it) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   return it->value;
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return it->value();
 #else
   return it.value();
 #endif
@@ -3575,6 +3641,8 @@ std::string JsonToString(const detail::json &o, int spacing = -1) {
     }
   }
   return buffer.GetString();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  return boost::json::serialize(o);
 #else
   return o.dump(spacing);
 #endif
@@ -3629,6 +3697,48 @@ static bool ParseJsonAsValue(Value *ret, const detail::json &o) {
     case Type::kNullType:
       break;
       // all types are covered, so no `case default`
+  }
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  switch (o.kind()) {
+  case boost::json::kind::object: {
+      auto& jmap = o.as_object();
+      Value::Object value_object;
+      for (auto it = jmap.begin(); it != jmap.end(); it++) {
+          Value entry;
+          ParseJsonAsValue(&entry, it->value());
+          if (entry.Type() != NULL_TYPE)
+              value_object.emplace(it->key(), std::move(entry));
+      }
+      if (value_object.size() > 0) val = Value(std::move(value_object));
+  } break;
+  case boost::json::kind::array: {
+      auto& jarray = o.as_array();
+      Value::Array value_array;
+      value_array.reserve(jarray.size());
+      for (auto it = jarray.begin(); it != jarray.end(); it++) {
+          Value entry;
+          ParseJsonAsValue(&entry, *it);
+          if (entry.Type() != NULL_TYPE)
+              value_array.emplace_back(std::move(entry));
+      }
+      if (value_array.size() > 0) val = Value(std::move(value_array));
+  } break;
+  case boost::json::kind::string:
+      val = Value(boost::json::value_to<std::string>(o));
+      break;
+  case boost::json::kind::bool_:
+      val = Value(o.as_bool());
+      break;
+  case boost::json::kind::int64:
+  case boost::json::kind::uint64:
+      val = Value(static_cast<int>(o.to_number<int64_t>()));
+      break;
+  case boost::json::kind::double_:
+      val = Value(o.to_number<double>());
+      break;
+  case boost::json::kind::null:
+      // default:
+      break;
   }
 #else
   switch (o.type()) {
@@ -3716,6 +3826,11 @@ static bool ParseBooleanProperty(bool *ret, std::string *err,
   isBoolean = value.IsBool();
   if (isBoolean) {
     boolValue = value.GetBool();
+  }
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  isBoolean = value.is_bool();
+  if (isBoolean) {
+      boolValue = value.as_bool();
   }
 #else
   isBoolean = value.is_boolean();
@@ -3807,6 +3922,18 @@ static bool ParseUnsignedProperty(size_t *ret, std::string *err,
   } else if (value.IsUint64()) {
     uValue = value.GetUint64();
     isUValue = true;
+  }
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  isUValue = false;
+  if(value.is_int64() || value.is_uint64())
+  {
+      boost::json::error_code ec;
+      size_t tempValue = value.to_number<size_t>(ec);
+      isUValue = !ec.failed();
+      if (isUValue)
+      {
+          uValue = tempValue;
+      }
   }
 #else
   isUValue = value.is_number_unsigned();
@@ -6915,6 +7042,12 @@ void JsonAddMember(detail::json &o, const char *key, detail::json &&value) {
     o.AddMember(detail::json(key, detail::GetAllocator()), std::move(value),
                 detail::GetAllocator());
   }
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  if (!o.is_object()) {
+    o.emplace_object();
+  }
+
+  o.as_object().insert_or_assign(key, std::move(value));
 #else
   o[key] = std::move(value);
 #endif
@@ -6923,6 +7056,11 @@ void JsonAddMember(detail::json &o, const char *key, detail::json &&value) {
 void JsonPushBack(detail::json &o, detail::json &&value) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   o.PushBack(std::move(value), detail::GetAllocator());
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+    if (!o.is_array()) {
+        o.emplace_array();
+    }
+    o.as_array().push_back(std::move(value));
 #else
   o.push_back(std::move(value));
 #endif
@@ -6939,6 +7077,8 @@ bool JsonIsNull(const detail::json &o) {
 void JsonSetObject(detail::json &o) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   o.SetObject();
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  o.emplace_object();
 #else
   o = o.object({});
 #endif
@@ -6948,6 +7088,9 @@ void JsonReserveArray(detail::json &o, size_t s) {
 #ifdef TINYGLTF_USE_RAPIDJSON
   o.SetArray();
   o.Reserve(static_cast<rapidjson::SizeType>(s), detail::GetAllocator());
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+    o.emplace_array();
+    o.as_array().reserve(s);
 #endif
   (void)(o);
   (void)(s);
@@ -7053,6 +7196,48 @@ static bool ValueToJson(const Value &value, detail::json *ret) {
     }
     case NULL_TYPE:
     default:
+      return false;
+  }
+#elif defined(TINYGLTF_USE_BOOSTJSON)
+  switch (value.Type()) {
+  case REAL_TYPE:
+      obj = detail::json(value.Get<double>());
+      break;
+  case INT_TYPE:
+      obj = detail::json(value.Get<int>());
+      break;
+  case BOOL_TYPE:
+      obj = detail::json(value.Get<bool>());
+      break;
+  case STRING_TYPE:
+      obj = detail::json(value.Get<std::string>());
+      break;
+  case ARRAY_TYPE: {
+      auto& jarray = obj.emplace_array();
+      for (unsigned int i = 0; i < value.ArrayLen(); ++i) {
+          Value elementValue = value.Get(int(i));
+          detail::json elementJson;
+          if (ValueToJson(value.Get(int(i)), &elementJson))
+              jarray.push_back(elementJson);
+      }
+      break;
+  }
+  case BINARY_TYPE:
+      // TODO
+      // obj = json(value.Get<std::vector<unsigned char>>());
+      return false;
+      break;
+  case OBJECT_TYPE: {
+      auto& jmap = obj.emplace_object();
+      Value::Object objMap = value.Get<Value::Object>();
+      for (auto& it : objMap) {
+          detail::json elementJson;
+          if (ValueToJson(it.second, &elementJson)) jmap[it.first] = elementJson;
+      }
+      break;
+  }
+  case NULL_TYPE:
+  default:
       return false;
   }
 #else
