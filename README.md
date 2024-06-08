@@ -1,3 +1,6 @@
-Source repo: syoyo/tinygltf (https://github.com/syoyo/tinygltf)
+# 3p-tinyexr
 
-Version tag: 2.5.0 (https://github.com/syoyo/tinygltf/releases/tag/v2.5.0)
+[Autobuild][] packaged [tinygltf][].
+
+[Autobuild]: https://github.com/secondlife/autobuild
+[tinygltf]: https://github.com/syoyo/tinygltf
