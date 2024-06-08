@@ -1,4 +1,4 @@
-# 3p-tinyexr
+# 3p-tinygltf
 
 [Autobuild][] packaged [tinygltf][].
 
